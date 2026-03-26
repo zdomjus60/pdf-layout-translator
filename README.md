@@ -1,28 +1,38 @@
-# Traduttore PDF Layout-Aware
+# PDF Layout-Aware Translator
 
-Questo programma traduce PDF mantenendo il layout originale (immagini, grafica) e cercando di far rientrare il testo tradotto negli stessi spazi dell'originale, scalando il font se necessario.
+Un traduttore di PDF intelligente scritto in Python che mantiene il layout originale, i font e le immagini, adattando automaticamente la dimensione del testo per far sì che la traduzione rientri negli spazi originali.
 
-## Funzionalità
-- Estrazione del testo con coordinate precise tramite **PyMuPDF**.
-- Traduzione tramite **Google Translate** (via `deep-translator`).
-- Ricostruzione del PDF con sovrapposizione del testo tradotto.
-- Auto-scaling dei font per preservare l'impaginazione.
+## Caratteristiche
+- **Layout Preservation**: Mantiene immagini, grafica e posizionamento del testo originale.
+- **Intelligent Font Mapping**: Riconosce Arial, Times New Roman e Courier New (se installati) per la massima fedeltà visiva.
+- **Auto-scaling**: Riduce dinamicamente la dimensione del font se la traduzione è più lunga dell'originale.
+- **Supporto Multilingua**: Utilizza Google Translate via `deep-translator`.
+- **OCR Fallback**: Predisposto per gestire pagine difficili tramite Tesseract OCR.
 
-## Requisiti
-- Python 3.7+
-- Librerie: `PyMuPDF`, `deep-translator`, `tqdm`
+## Requisiti di Sistema
+Il programma dà il meglio di sé su Linux con i font Microsoft installati:
+```bash
+sudo apt update
+sudo apt install ttf-mscorefonts-installer tesseract-ocr tesseract-ocr-ita
+```
 
 ## Installazione
+1. Clona il repository.
+2. Installa le dipendenze Python:
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Utilizzo
-Modifica `translator.py` per cambiare lingua (default: `it`) o file di input, oppure eseguilo direttamente:
+Esegui il programma passando il file PDF e la lingua di destinazione (opzionale, default: `it`):
 ```bash
-python translator.py
+python3 translator.py "Il_Mio_Libro.pdf" it
 ```
 
-## Note Tecniche
-- Il programma utilizza un font standard (Helvetica) per la traduzione per garantire la compatibilità, ma cerca di mantenere dimensione e colore originali.
-- La "copertura" del testo originale avviene tramite rettangoli bianchi. Per PDF con sfondi non bianchi, il risultato potrebbe variare.
+## Crediti e Riferimenti
+- **PyMuPDF (fitz)**: Per la manipolazione avanzata dei PDF.
+- **deep-translator**: Per l'interfaccia con i servizi di traduzione.
+- **Google Translate**: Motore di traduzione.
+
+## Licenza
+Distribuito sotto licenza MIT. Vedere il file `LICENSE` per i dettagli.
