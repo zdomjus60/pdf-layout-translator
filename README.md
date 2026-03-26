@@ -36,3 +36,10 @@ python3 translator.py "Il_Mio_Libro.pdf" it
 
 ## Licenza
 Distribuito sotto licenza MIT. Vedere il file `LICENSE` per i dettagli.
+
+## Nota sul Copyright: 
+  Questo repository include "The Little Prince" a scopo
+  dimostrativo. L'opera è nel pubblico dominio in molte giurisdizioni (UE,
+  Canada, ecc.), ma potrebbe essere ancora protetta in Francia e negli Stati
+  Uniti (fino al 2039). Si prega di utilizzare il software nel rispetto delle
+  leggi locali sul diritto d'autore.
