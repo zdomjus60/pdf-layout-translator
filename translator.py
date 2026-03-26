@@ -20,9 +20,10 @@ class PDFTranslator:
         return (alphanumeric / total) < 0.3
 
     def translate_text(self, text):
-        if not text or not text.strip() or text.strip().isdigit() or len(text.strip()) < 2:
+        if not text or not text.strip() or text.strip().isdigit() or len(text.strip()) < 3:
             return text
         try:
+            # Pulizia profonda: rimuove a capo forzati nel mezzo delle frasi
             clean_text = " ".join(text.split())
             result = self.translator.translate(clean_text)
             return result if result else text
@@ -57,18 +58,6 @@ class PDFTranslator:
         full_path = os.path.join(base_path, font_file)
         return full_path if os.path.exists(full_path) else None
 
-    def get_text_width(self, text, size, font_path=None):
-        """Calcola la larghezza del testo per determinare lo scaling."""
-        try:
-            if font_path:
-                # Crea un oggetto font temporaneo per la misurazione
-                font = fitz.Font(fontfile=font_path)
-                return font.text_length(text, fontsize=size)
-            else:
-                return fitz.get_text_length(text, fontname="helv", fontsize=size)
-        except:
-            return len(text) * size * 0.5 # Fallback grossolano
-
     def process(self, output_pdf):
         new_doc = fitz.open()
 
@@ -78,64 +67,67 @@ class PDFTranslator:
             temp_page = temp_doc.new_page(width=page.rect.width, height=page.rect.height)
             temp_page.show_pdf_page(temp_page.rect, self.doc, page_num)
             
+            # Estraiamo i blocchi (non le singole linee)
             dict_text = page.get_text("dict")
 
             for block in dict_text["blocks"]:
-                if block["type"] == 0:
+                if block["type"] == 0:  # Blocco di testo
+                    # Uniamo tutto il testo del blocco per dare contesto al traduttore
+                    block_text_parts = []
                     for line in block["lines"]:
                         line_text = "".join([span["text"] for span in line["spans"]])
-                        if not line_text.strip():
-                            continue
-                            
-                        translated_line = self.translate_text(line_text)
+                        block_text_parts.append(line_text)
+                    
+                    full_block_text = " ".join(block_text_parts)
+                    if not full_block_text.strip():
+                        continue
                         
-                        first_span = line["spans"][0]
-                        font_size = first_span["size"]
-                        original_font = first_span["font"]
-                        color_int = first_span["color"]
-                        origin = list(first_span["origin"]) # [x, y]
-                        line_bbox = line["bbox"] # [x0, y0, x1, y1]
-                        
-                        # Colore
-                        r = ((color_int >> 16) & 0xFF) / 255.0
-                        g = ((color_int >> 8) & 0xFF) / 255.0
-                        b = (color_int & 0xFF) / 255.0
-                        rgb_color = (r, g, b)
-                        
-                        # 1. Copri testo originale
-                        temp_page.draw_rect(line_bbox, color=(1, 1, 1), fill=(1, 1, 1), overlay=True)
-                        
-                        # 2. Gestione Font e Scaling
-                        font_path = self.get_best_font_path(original_font)
-                        max_width = line_bbox[2] - line_bbox[0]
-                        current_font_size = font_size
-                        
-                        # Riduci font finché non entra nel box
-                        while self.get_text_width(translated_line, current_font_size, font_path) > max_width and current_font_size > 4:
-                            current_font_size -= 0.3
-                        
-                        # 3. Inserimento testo
-                        try:
-                            if font_path:
-                                font_tag = os.path.basename(font_path).split('.')[0]
-                                temp_page.insert_text(
-                                    origin, 
-                                    translated_line, 
-                                    fontsize=current_font_size, 
-                                    color=rgb_color,
-                                    fontname=font_tag,
-                                    fontfile=font_path
-                                )
-                            else:
-                                temp_page.insert_text(
-                                    origin, 
-                                    translated_line, 
-                                    fontsize=current_font_size, 
-                                    color=rgb_color,
-                                    fontname="helv"
-                                )
-                        except Exception as e:
-                            print(f"\n[!] Errore riga: {e}")
+                    translated_block = self.translate_text(full_block_text)
+                    
+                    # Proprietà estetiche dal primo span del blocco
+                    first_line = block["lines"][0]
+                    first_span = first_line["spans"][0]
+                    font_size = first_span["size"]
+                    original_font = first_span["font"]
+                    color_int = first_span["color"]
+                    block_bbox = block["bbox"]
+                    
+                    # Colore
+                    r = ((color_int >> 16) & 0xFF) / 255.0
+                    g = ((color_int >> 8) & 0xFF) / 255.0
+                    b = (color_int & 0xFF) / 255.0
+                    rgb_color = (r, g, b)
+                    
+                    # 1. Copri l'intero blocco originale
+                    temp_page.draw_rect(block_bbox, color=(1, 1, 1), fill=(1, 1, 1), overlay=True)
+                    
+                    # 2. Gestione Font
+                    font_path = self.get_best_font_path(original_font)
+                    font_tag = os.path.basename(font_path).split('.')[0] if font_path else "helv"
+                    
+                    # 3. Inserimento con Word-Wrap e Auto-Scaling
+                    # Usiamo un ciclo per rimpicciolire il font se il testo non entra nel box
+                    current_font_size = font_size
+                    
+                    def try_insert(size):
+                        # Restituisce l'altezza del testo inserito per vedere se entra
+                        return temp_page.insert_textbox(
+                            block_bbox, 
+                            translated_block, 
+                            fontsize=size, 
+                            color=rgb_color,
+                            fontname=font_tag,
+                            fontfile=font_path,
+                            align=fitz.TEXT_ALIGN_LEFT
+                        )
+
+                    # Tentativo di inserimento con scaling
+                    # insert_textbox restituisce un valore negativo se il testo non entra
+                    rc = try_insert(current_font_size)
+                    while rc < 0 and current_font_size > 4:
+                        # Cancelliamo il tentativo fallito coprendo di nuovo (operazione virtuale in fitz)
+                        current_font_size -= 0.5
+                        rc = try_insert(current_font_size)
 
             new_doc.insert_pdf(temp_doc)
             temp_doc.close()
@@ -160,5 +152,6 @@ if __name__ == "__main__":
         print(f"Errore: Il file '{input_file}' non esiste.")
         sys.exit(1)
         
+    print(f"Inizio traduzione di '{input_file}' in '{target_lang}' (Metodo a Blocchi)...")
     translator = PDFTranslator(input_file, target_lang=target_lang)
     translator.process(output_file)
