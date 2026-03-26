@@ -1,5 +1,14 @@
+# Ignora tutti i PDF
 *.pdf
+
+# Ma includi l'originale del Piccolo Principe
+!TheLittlePrince.pdf
+
+# Python
 __pycache__/
 *.pyc
 venv/
 .env
+
+# Altro
+.DS_Store
