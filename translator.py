@@ -1,14 +1,30 @@
 import fitz
 import os
 import re
-from deep_translator import GoogleTranslator
+import argparse
+from deep_translator import GoogleTranslator, LibreTranslator
 from tqdm import tqdm
 
 class PDFTranslator:
-    def __init__(self, input_pdf, target_lang='it'):
+    def __init__(self, input_pdf, target_lang='it', engine='google', base_url=None, api_key=None):
         self.input_pdf = input_pdf
         self.target_lang = target_lang
-        self.translator = GoogleTranslator(source='auto', target=target_lang)
+        self.engine = engine.lower()
+        
+        if self.engine == 'libre':
+            # Se non fornito, tenta un'istanza pubblica (attenzione ai limiti di rate!)
+            url = base_url if base_url else "https://libretranslate.de"
+            print(f"[*] Motore: LibreTranslate ({url})")
+            self.translator = LibreTranslator(
+                source='auto', 
+                target=target_lang, 
+                base_url=url,
+                api_key=api_key
+            )
+        else:
+            print(f"[*] Motore: Google Translate")
+            self.translator = GoogleTranslator(source='auto', target=target_lang)
+            
         self.doc = fitz.open(input_pdf)
 
     def is_gibberish(self, text):
@@ -23,11 +39,11 @@ class PDFTranslator:
         if not text or not text.strip() or text.strip().isdigit() or len(text.strip()) < 3:
             return text
         try:
-            # Pulizia profonda: rimuove a capo forzati nel mezzo delle frasi
             clean_text = " ".join(text.split())
             result = self.translator.translate(clean_text)
             return result if result else text
-        except Exception:
+        except Exception as e:
+            # In caso di errore (es: rate limit di LibreTranslate), restituisce l'originale
             return text
 
     def get_best_font_path(self, original_font_name):
@@ -67,12 +83,10 @@ class PDFTranslator:
             temp_page = temp_doc.new_page(width=page.rect.width, height=page.rect.height)
             temp_page.show_pdf_page(temp_page.rect, self.doc, page_num)
             
-            # Estraiamo i blocchi (non le singole linee)
             dict_text = page.get_text("dict")
 
             for block in dict_text["blocks"]:
                 if block["type"] == 0:  # Blocco di testo
-                    # Uniamo tutto il testo del blocco per dare contesto al traduttore
                     block_text_parts = []
                     for line in block["lines"]:
                         line_text = "".join([span["text"] for span in line["spans"]])
@@ -84,7 +98,6 @@ class PDFTranslator:
                         
                     translated_block = self.translate_text(full_block_text)
                     
-                    # Proprietà estetiche dal primo span del blocco
                     first_line = block["lines"][0]
                     first_span = first_line["spans"][0]
                     font_size = first_span["size"]
@@ -92,25 +105,19 @@ class PDFTranslator:
                     color_int = first_span["color"]
                     block_bbox = block["bbox"]
                     
-                    # Colore
                     r = ((color_int >> 16) & 0xFF) / 255.0
                     g = ((color_int >> 8) & 0xFF) / 255.0
                     b = (color_int & 0xFF) / 255.0
                     rgb_color = (r, g, b)
                     
-                    # 1. Copri l'intero blocco originale
                     temp_page.draw_rect(block_bbox, color=(1, 1, 1), fill=(1, 1, 1), overlay=True)
                     
-                    # 2. Gestione Font
                     font_path = self.get_best_font_path(original_font)
                     font_tag = os.path.basename(font_path).split('.')[0] if font_path else "helv"
                     
-                    # 3. Inserimento con Word-Wrap e Auto-Scaling
-                    # Usiamo un ciclo per rimpicciolire il font se il testo non entra nel box
                     current_font_size = font_size
                     
                     def try_insert(size):
-                        # Restituisce l'altezza del testo inserito per vedere se entra
                         return temp_page.insert_textbox(
                             block_bbox, 
                             translated_block, 
@@ -121,11 +128,8 @@ class PDFTranslator:
                             align=fitz.TEXT_ALIGN_LEFT
                         )
 
-                    # Tentativo di inserimento con scaling
-                    # insert_textbox restituisce un valore negativo se il testo non entra
                     rc = try_insert(current_font_size)
                     while rc < 0 and current_font_size > 4:
-                        # Cancelliamo il tentativo fallito coprendo di nuovo (operazione virtuale in fitz)
                         current_font_size -= 0.5
                         rc = try_insert(current_font_size)
 
@@ -137,21 +141,27 @@ class PDFTranslator:
         print(f"\n[+] Successo! PDF salvato in: {output_pdf}")
 
 if __name__ == "__main__":
-    import sys
-    import os
+    parser = argparse.ArgumentParser(description="Traduttore PDF basato su blocchi di testo.")
+    parser.add_argument("input_file", help="Il file PDF da tradurre.")
+    parser.add_argument("target_lang", nargs="?", default="it", help="Lingua di destinazione (default: it).")
+    parser.add_argument("--engine", choices=["google", "libre"], default="google", help="Motore di traduzione da usare (default: google).")
+    parser.add_argument("--url", help="URL base per LibreTranslate (opzionale).")
+    parser.add_argument("--api-key", help="API key per LibreTranslate (opzionale).")
     
-    if len(sys.argv) < 2:
-        print("Utilizzo: python translator.py <nome_file.pdf> [<lingua_target>]")
-        sys.exit(1)
-        
-    input_file = sys.argv[1]
-    target_lang = sys.argv[2] if len(sys.argv) > 2 else 'it'
-    output_file = input_file.replace(".pdf", f"_{target_lang}.pdf")
+    args = parser.parse_args()
     
-    if not os.path.exists(input_file):
-        print(f"Errore: Il file '{input_file}' non esiste.")
-        sys.exit(1)
+    if not os.path.exists(args.input_file):
+        print(f"Errore: Il file '{args.input_file}' non esiste.")
+        exit(1)
         
-    print(f"Inizio traduzione di '{input_file}' in '{target_lang}' (Metodo a Blocchi)...")
-    translator = PDFTranslator(input_file, target_lang=target_lang)
+    output_file = args.input_file.replace(".pdf", f"_{args.target_lang}.pdf")
+    
+    print(f"Inizio traduzione di '{args.input_file}' in '{args.target_lang}'...")
+    translator = PDFTranslator(
+        args.input_file, 
+        target_lang=args.target_lang, 
+        engine=args.engine, 
+        base_url=args.url, 
+        api_key=args.api_key
+    )
     translator.process(output_file)
