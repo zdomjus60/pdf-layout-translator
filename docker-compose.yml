@@ -1,0 +1,17 @@
+services:
+  libretranslate:
+    image: libretranslate/libretranslate
+    container_name: libretranslate
+    ports:
+      - "5000:5000"
+    environment:
+      # Carica solo le lingue necessarie per risparmiare spazio e tempo (es: en,it)
+      - LT_LOAD_ONLY=en,it
+      # Se vuoi caricare tutte le lingue, commenta la riga sopra
+    restart: always
+    # I modelli verranno salvati in un volume per non riscaricarli ogni volta
+    volumes:
+      - lt-local:/home/libretranslate/.local
+
+volumes:
+  lt-local:
