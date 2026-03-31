@@ -17,16 +17,23 @@ class PDFTranslator:
 
     def is_gibberish(self, text):
         if not text or not text.strip(): return True
-        # Se ha troppi pochi caratteri alfanumerici rispetto alla lunghezza totale, è rumore
+        # Se ha almeno qualche lettera o numero, proviamo a tenerlo. 
+        # Riduciamo la soglia per supportare menù con molti simboli/puntini.
         alphanumeric = len(re.findall(r'[a-zA-Z0-9]', text))
         if len(text.strip()) == 0: return True
-        return (alphanumeric / len(text.strip())) < 0.4
+        return (alphanumeric / len(text.strip())) < 0.2
 
     def translate_text(self, text):
-        if not text or self.is_gibberish(text) or text.strip().isdigit() or len(text.strip()) < 3:
+        if not text or self.is_gibberish(text) or text.strip().isdigit() or len(text.strip()) < 2:
             return text
             
-        clean_text = " ".join(text.split()).strip()
+        # Puliamo gli spazi orizzontali ma preserviamo i newline
+        lines = text.split('\n')
+        clean_lines = [" ".join(l.split()).strip() for l in lines]
+        clean_text = "\n".join(clean_lines).strip()
+        
+        if not clean_text: return text
+
         try:
             if self.engine == 'libre':
                 response = requests.post(
@@ -39,6 +46,7 @@ class PDFTranslator:
                 return text
             else:
                 from deep_translator import GoogleTranslator
+                # GoogleTranslator gestisce bene i newline (\n) preservandoli nella risposta
                 return GoogleTranslator(source='auto', target=self.target_lang).translate(clean_text)
         except:
             return text
@@ -69,8 +77,29 @@ class PDFTranslator:
             dict_text = page.get_text("dict")
             for block in dict_text["blocks"]:
                 if block["type"] == 0:
-                    # Uniamo le linee del blocco
-                    raw_text = " ".join(["".join([span["text"] for span in line["spans"]]) for line in block["lines"]])
+                    # Estraiamo e uniamo le righe in modo intelligente
+                    lines = []
+                    for line in block["lines"]:
+                        line_text = "".join([span["text"] for span in line["spans"]]).strip()
+                        if line_text: lines.append(line_text)
+                    
+                    if not lines: continue
+                    
+                    # Smart Join: decidiamo se usare spazio o \n
+                    raw_text = ""
+                    for i in range(len(lines)):
+                        raw_text += lines[i]
+                        if i < len(lines) - 1:
+                            # Caso parola spezzata dal trattino
+                            if lines[i].endswith("-"):
+                                raw_text = raw_text[:-1]
+                            # Caso continuazione frase (prossima riga inizia minuscola)
+                            elif lines[i+1] and lines[i+1][0].islower():
+                                raw_text += " "
+                            # Caso lista o titolo (prossima riga inizia maiuscola o numero)
+                            else:
+                                raw_text += "\n"
+                        
                     if self.is_gibberish(raw_text): continue
                         
                     translated_text = self.translate_text(raw_text)
